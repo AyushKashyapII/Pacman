@@ -168,7 +168,8 @@ class MinimaxAgent:
             # Now it's ghost's turn (MIN node) from next_state_dict
             # Depth is self.depth because this is the first level of lookahead.
             # The min_value will then call max_value with depth-1.
-            eval_score = self.min_value(next_state_dict, self.depth, alpha, beta, game_instance.game_board.board) # Pass original layout for re-construction
+            # Pass the initial_layout from the game_board for reconstructing the static parts of the game.
+            eval_score = self.min_value(next_state_dict, self.depth, alpha, beta, game_instance.game_board.initial_layout)
 
             if eval_score > max_eval:
                 max_eval = eval_score
@@ -262,152 +263,160 @@ class MinimaxAgent:
         This is a critical and potentially complex part.
         It needs to accurately reconstruct the game state.
         `original_layout_template` is the initial static layout (walls, original pellet locations).
-        `game_state_dict['board']` reflects the *current* dynamic board (e.g., eaten pellets).
+        `game_state_dict['board_grid']` (or `game_state_dict['board']`) reflects the *current* dynamic board.
+        `original_layout_grid` is the static wall layout.
         """
-        # 1. Create GameBoard: The game_state_dict['board'] is a list of lists of chars.
-        #    The GameBoard can be initialized with this directly.
-        #    However, the Game constructor takes a layout and finds 'S', 'G'.
-        #    This needs careful handling.
+        # Step 1: Initialize temp_game with the original static layout.
+        # This sets up walls, and initial (but soon to be overridden) Pac-Man/Ghost/Pellet placements.
+        # No Pygame screen/font needed for simulation. No nested AI.
+        temp_game = Game(layout=original_layout_grid, ai_agent_depth=None, screen=None, font=None)
 
-        # Option A: Modify Game to accept a pre-parsed board and explicit entities.
-        # Option B: Create a new layout from game_state_dict['board'] that Game can parse.
-        #           This means placing 'S' and 'G' markers back into the board char list.
+        # Step 2: Override game state from game_state_dict.
 
-        # Let's try Option B, but it's a bit hacky if Game then removes them again.
-        # A cleaner solution would be a new Game constructor or a state-setting method.
+        # Board (Pellets/Power-ups):
+        # The game_state_dict['board'] (or 'board_grid') contains the current pellet/power-up configuration.
+        # The GameBoard of temp_game was initialized with original_layout_grid.
+        # We need to update its 'grid' attribute to reflect the current state of pellets.
+        current_grid_from_state = game_state_dict.get('board_grid') or game_state_dict.get('board')
+        if current_grid_from_state:
+            temp_game.game_board.grid = [row[:] for row in current_grid_from_state]
+        else:
+            # This case should ideally not happen if get_state_for_ai is providing the grid.
+            # If it does, the temp_game.game_board.grid will remain as per original_layout_grid,
+            # which might be okay if pellets are not changing or not crucial for this sim depth.
+            # However, it's better to ensure 'board_grid' or 'board' is always in game_state_dict.
+            pass
 
-        current_board_chars = [row[:] for row in game_state_dict['board']] # Deep copy
+        # Pac-Man state:
+        pacman_info = game_state_dict.get('pacman', {}) # Use .get for safety
+        temp_game.pacman.row = pacman_info.get('row', temp_game.pacman.row)
+        temp_game.pacman.col = pacman_info.get('col', temp_game.pacman.col)
+        temp_game.pacman.direction = pacman_info.get('direction', temp_game.pacman.direction)
+        temp_game.pacman.lives = pacman_info.get('lives', temp_game.pacman.lives)
+        temp_game.pacman.powered_up = pacman_info.get('powered_up', temp_game.pacman.powered_up)
 
-        # Place Pac-Man 'S' and Ghosts 'G' into this char layout temporarily for Game constructor
-        # The Game constructor expects to find these to init PacMan and Ghost objects.
-        # It then removes them. This is a bit inefficient but might work with current Game.
-        pac_r, pac_c = game_state_dict['pacman_pos']
-        # Ensure 'S' is not placed on a wall if logic error somewhere else.
-        # For now, assume valid positions from game_state_dict.
-        original_pac_char_at_S = current_board_chars[pac_r][pac_c] # Could be ' ', '.', 'P'
-        current_board_chars[pac_r][pac_c] = 'S'
+        temp_game.pacman.score = game_state_dict.get('score', temp_game.pacman.score) # Score is on PacMan in Game, but top-level in state dict
+        temp_game.power_up_timer = game_state_dict.get('power_up_timer', temp_game.power_up_timer)
 
-        original_ghost_chars = []
-        for i, (g_r, g_c) in enumerate(game_state_dict['ghosts_pos']):
-            original_ghost_chars.append(current_board_chars[g_r][g_c])
-            current_board_chars[g_r][g_c] = 'G' # If multiple ghosts, this might overwrite if not careful
-                                                 # Game constructor handles multiple 'G's by creating multiple ghosts
+        # Ghosts state:
+        ghost_info_list = game_state_dict.get('ghosts', [])
+        # The number of ghosts in temp_game (from original_layout_grid) should match ghost_info_list.
+        # If not, this indicates a discrepancy or a more dynamic ghost model not yet supported.
+        for i in range(min(len(temp_game.ghosts), len(ghost_info_list))):
+            ghost_state_info = ghost_info_list[i]
+            temp_game.ghosts[i].row = ghost_state_info.get('row', temp_game.ghosts[i].row)
+            temp_game.ghosts[i].col = ghost_state_info.get('col', temp_game.ghosts[i].col)
+            temp_game.ghosts[i].mode = ghost_state_info.get('mode', temp_game.ghosts[i].mode)
 
-        # Now, create the game instance
-        # This game instance will internally create its PacMan and Ghost objects
-        # based on the 'S' and 'G's we just placed.
-        temp_game = Game(current_board_chars) # Game init will find 'S', 'G'
+        # Game-level state variables:
+        temp_game.game_state = game_state_dict.get('game_state', temp_game.game_state)
+        # temp_game.current_turn could be updated if needed: game_state_dict.get('current_turn', temp_game.current_turn)
 
-        # Restore the characters on the board where 'S' and 'G' were temporarily placed
-        # because temp_game.game_board.board now has ' ' at these S/G locations.
-        # We need to ensure the board *before* PacMan/Ghost objects are placed is correct.
-        # The `temp_game.game_board.board` is what Game uses for `get_cell`, `is_wall`.
-        # After Game init, S and G are replaced by ' '.
-        # If original_pac_char_at_S was '.', it should remain '.' if PacMan hasn't eaten it.
-        # The game_state_dict['board'] should be the source of truth for pellets.
-        # So, the temp_game.game_board should ALREADY be correct from game_state_dict['board']
-        # EXCEPT for where S and G were. Game() constructor makes them ' '.
-        # If original_pac_char_at_S was '.', and PacMan is on it, it's not eaten yet.
-        # This is subtle. The game_state_dict['board'] is the state *before* Pacman/Ghost entities are drawn.
-        # The Game constructor makes a GameBoard from the layout, then places Pacman/Ghosts,
-        # then sets their initial cell to ' '. This is what we want.
-
-        # Now, crucial: update the state of this temp_game to match game_state_dict
-        # (lives, score, powered_up, ghost modes, actual pellet configuration)
-
-        temp_game.pacman.row, temp_game.pacman.col = game_state_dict['pacman_pos'] # Already set by 'S'
-        temp_game.pacman.lives = game_state_dict['pacman_lives']
-        temp_game.pacman.score = game_state_dict['pacman_score']
-        temp_game.pacman.powered_up = game_state_dict['pacman_powered_up']
-        # PacMan direction might be needed if ghosts' chase logic depends on it.
-        # game_state_dict doesn't have pacman_direction currently. Add if necessary.
-
-        for i, ghost_obj in enumerate(temp_game.ghosts):
-            if i < len(game_state_dict['ghosts_pos']):
-                ghost_obj.row, ghost_obj.col = game_state_dict['ghosts_pos'][i] # Already set by 'G'
-                ghost_obj.mode = game_state_dict['ghosts_modes'][i]
-
-        temp_game.game_state = game_state_dict['game_state']
-        temp_game.power_up_timer = game_state_dict['power_up_timer']
-
-        # The GameBoard's pellets need to be accurate.
-        # The `current_board_chars` used for Game() init contained the dynamic pellet state.
-        # So, `temp_game.game_board` should be correct.
+        # Note: num_pellets_left is not directly set on temp_game, but its GameBoard.grid is updated.
+        # If evaluate_state needs num_pellets_left directly from game_state_dict, it can use it.
+        # Or, temp_game.game_board.get_pellet_count() could be called if evaluate_state has access to temp_game.
 
         return temp_game
 
 
-    def evaluate_state(self, game_state):
+    def evaluate_state(self, game_state): # game_state is game_state_dict
         """
         Evaluates the utility of a game state for Pac-Man.
         Higher scores are better for Pac-Man.
         """
         if game_state['game_state'] == 'WIN':
-            return 10000 + game_state['pacman_score'] # High score for winning
+            return 10000 + game_state['score'] # Use score from state_dict
         if game_state['game_state'] == 'GAME_OVER':
-            return -10000 - (3 - game_state['pacman_lives']) * 1000 # Penalize game over heavily, more for fewer lives left
+            # Use lives from pacman sub-dictionary if available, else fallback
+            pac_lives = game_state.get('pacman', {}).get('lives', 0)
+            if 'pacman_lives' in game_state : # check old key for safety
+                pac_lives = game_state['pacman_lives']
 
-        score = game_state['pacman_score']
+            return -10000 - (3 - pac_lives) * 1000
+
+        current_score = game_state['score']
 
         # Pellet heuristic
-        num_pellets = 0
+        # num_pellets is now directly in game_state
+        num_pellets = game_state.get('num_pellets_left', 0)
         min_dist_pellet = float('inf')
-        pac_r, pac_c = game_state['pacman_pos']
-        for r_idx, row in enumerate(game_state['board']):
-            for c_idx, cell in enumerate(row):
-                if cell == '.':
-                    num_pellets += 1
-                    dist = abs(pac_r - r_idx) + abs(pac_c - c_idx)
-                    if dist < min_dist_pellet:
-                        min_dist_pellet = dist
 
-        score -= num_pellets * 10  # Penalize for remaining pellets
+        # Use pacman_pos from state_dict for pac_r, pac_c
+        pac_r, pac_c = game_state.get('pacman', {}).get('row'), game_state.get('pacman', {}).get('col')
+        if 'pacman_pos' in game_state: # fallback for old key
+             pac_r, pac_c = game_state['pacman_pos']
+
+
+        if pac_r is not None and pac_c is not None:
+            # Iterate over the board from game_state to find pellets
+            # game_state['board'] or game_state['board_grid'] should be used
+            current_grid = game_state.get('board_grid') or game_state.get('board')
+            if current_grid:
+                for r_idx, row in enumerate(current_grid):
+                    for c_idx, cell in enumerate(row):
+                        if cell == '.':
+                            # num_pellets count is already directly from game_state_dict['num_pellets_left']
+                            dist = abs(pac_r - r_idx) + abs(pac_c - c_idx)
+                            if dist < min_dist_pellet:
+                                min_dist_pellet = dist
+
+        current_score -= num_pellets * 10
         if num_pellets > 0 and min_dist_pellet != float('inf'):
-             score -= min_dist_pellet * 1.5 # Encourage moving towards closest pellet
+             current_score -= min_dist_pellet * 1.5
 
         # Power-up heuristic
-        if game_state['pacman_powered_up']:
-            score += 200
-            score += game_state['power_up_timer'] * 5 # Value remaining power-up time
+        pac_powered_up = game_state.get('pacman', {}).get('powered_up', False)
+        if 'pacman_powered_up' in game_state: # fallback for old key
+            pac_powered_up = game_state['pacman_powered_up']
+
+        if pac_powered_up:
+            current_score += 200
+            current_score += game_state.get('power_up_timer', 0) * 5
 
         # Ghost heuristics
         min_dist_active_ghost = float('inf')
         min_dist_frightened_ghost = float('inf')
 
-        for i, (g_r, g_c) in enumerate(game_state['ghosts_pos']):
-            dist = abs(pac_r - g_r) + abs(pac_c - g_c)
-            if game_state['ghosts_modes'][i] == 'FRIGHTENED':
-                if dist < min_dist_frightened_ghost:
-                    min_dist_frightened_ghost = dist
-            else: # CHASE or SCATTER
-                if dist < min_dist_active_ghost:
-                    min_dist_active_ghost = dist
+        ghost_states_list = game_state.get('ghosts', [])
+        # Fallback for old structure if 'ghosts' list is not present
+        if not ghost_states_list and 'ghosts_pos' in game_state and 'ghosts_modes' in game_state:
+            for i in range(len(game_state['ghosts_pos'])):
+                ghost_states_list.append({
+                    'row': game_state['ghosts_pos'][i][0],
+                    'col': game_state['ghosts_pos'][i][1],
+                    'mode': game_state['ghosts_modes'][i]
+                })
+
+        if pac_r is not None and pac_c is not None:
+            for g_state in ghost_states_list:
+                g_r, g_c = g_state['row'], g_state['col']
+                dist = abs(pac_r - g_r) + abs(pac_c - g_c)
+                if g_state['mode'] == 'FRIGHTENED':
+                    if dist < min_dist_frightened_ghost:
+                        min_dist_frightened_ghost = dist
+                else: # CHASE or SCATTER
+                    if dist < min_dist_active_ghost:
+                        min_dist_active_ghost = dist
 
         if min_dist_active_ghost != float('inf'):
-            if min_dist_active_ghost <= 1:  # Very close ghost
-                score -= 500
-            elif min_dist_active_ghost == 2: # Moderately close ghost
-                score -= 200
-            elif min_dist_active_ghost < 5: # Ghosts at distance 3 or 4
-                # Diminishing penalty for moderately close ghosts.
-                # Example: dist 3 -> approx -33; dist 4 -> approx -25
-                score -= (100 / (min_dist_active_ghost + 0.01))
-            # else (ghosts are 5 units or further):
-            # No specific strong penalty/bonus from this part for distant active ghosts.
-            # Other heuristics (pellet distance, general exploration) will guide movement.
-            # A very small penalty could be added here if preferred, e.g. score -= 5.
+            if min_dist_active_ghost <= 1:
+                current_score -= 500
+            elif min_dist_active_ghost == 2:
+                current_score -= 200
+            elif min_dist_active_ghost < 5:
+                current_score -= (100 / (min_dist_active_ghost + 0.01))
 
-        if game_state['pacman_powered_up'] and min_dist_frightened_ghost != float('inf'):
-            score += 100 # Bonus for being powered up with frightened ghosts around
-            # Ensure this value is significant enough compared to avoiding a non-frightened ghost.
-            # The value of eating a frightened ghost comes from:
-            # 1. This heuristic encouraging getting closer (-10 * dist_frightened)
-            # 2. The actual score bonus from eating a ghost (+200 in Game.update), reflected in future game_state['pacman_score']
-            # So, this part of the heuristic is mostly about willingness to approach them.
-            score -= min_dist_frightened_ghost * 10 # Strongly encourage moving towards frightened ghosts
+        if pac_powered_up and min_dist_frightened_ghost != float('inf'):
+            current_score += 100
+            current_score -= min_dist_frightened_ghost * 10
 
-        # Lives bonus (beyond not being game over)
-        score += game_state['pacman_lives'] * 100
+        # Lives bonus
+        pac_lives_for_score = game_state.get('pacman', {}).get('lives', 0)
+        if 'pacman_lives' in game_state: # fallback for old key
+            pac_lives_for_score = game_state['pacman_lives']
+        current_score += pac_lives_for_score * 100
+
+        return current_score
 
         return score
 

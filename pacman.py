@@ -36,7 +36,7 @@ dead_img=pygame.transform.scale(pygame.image.load(f'assets/ghost_images/dead.png
 blinky_x,blinky_y,blinky_direction=39,50,0 
 pinky_x,pinky_y,pinky_direction=300,260,2
 inky_x,inky_y,inky_direction=240,260,2 
-clyde_x,clyde_y,clyde_direction=330,280,2 
+clyde_x,clyde_y,clyde_direction=330,260,2 
 
 player_x,player_y=440,267
 
@@ -153,9 +153,6 @@ class Ghost:
                 elif self.turns[3]:
                     self.direction=3
                     self.y_pos+=self.speed
-                elif self.turns[1]:
-                    self.direction=1
-                    self.x_pos-=self.speed
             elif self.turns[0]:
                 if self.target[1]>self.y_pos and self.turns[3]:
                     self.direction=3
@@ -941,7 +938,6 @@ def get_targets(blink_x, blink_y, ink_x, ink_y, pink_x, pink_y, clyd_x, clyd_y):
 
 run=True
 
-
 while run:
     timer.tick(fps)
     if counter < 19:
@@ -1170,6 +1166,7 @@ while run:
     if clyde_dead:
         targets[3] = (285, 265)
 
+    # Replace the AI control section with keyboard controls
     for event in pygame.event.get():
         if event.type==pygame.QUIT:
             run=False
@@ -1204,16 +1201,6 @@ while run:
                 level=boards
                 game_over=False
                 game_won=False
-
-    if event.type==pygame.KEYUP:
-        if event.key==pygame.K_RIGHT and direction_command==0:
-                direction_command=direction
-        if event.key==pygame.K_LEFT and direction_command==1:
-                direction_command=direction
-        if event.key==pygame.K_UP and direction_command==2:
-                direction_command=direction
-        if event.key==pygame.K_DOWN and direction_command==3:
-                direction_command=direction
 
     if direction_command == 0 and turns_allowed[0]:
         direction = 0

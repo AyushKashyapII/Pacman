@@ -1,2 +1,4 @@
 watchdog==3.0.0
-pygame==2.5.2 
+pygame==2.5.2
+torch>=1.9.0
+numpy>=1.21.0 

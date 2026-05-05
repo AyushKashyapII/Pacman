@@ -5,7 +5,7 @@ print(f"boards type: {type(boards)}")
 print(f"boards length: {len(boards)}")
 
 if len(boards) > 0:
-    board_data = boards[0]
+    board_data = boards
     print(f"board_data type: {type(board_data)}")
     print(f"board_data length: {len(board_data)}")
     

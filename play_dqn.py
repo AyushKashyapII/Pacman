@@ -2,6 +2,7 @@ import pygame
 from game import Game
 from dqn import DQNAgent, preprocess_state
 from board import boards
+import argparse
 
 def convert_board_format(board_data):
     rows = len(board_data)
@@ -31,6 +32,10 @@ def convert_board_format(board_data):
     return converted_board
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Watch a trained Pac-Man DQN agent play.")
+    parser.add_argument("--model", default="pacman_dqn_final.pth")
+    args = parser.parse_args()
+
     pygame.init()
     pygame.font.init()
     default_font = pygame.font.Font(None, 30)
@@ -52,8 +57,7 @@ if __name__ == "__main__":
     action_size = 4
 
     agent = DQNAgent(state_size, action_size)
-    # Load the model trained for 100 episodes (change to 1000 when ready)
-    agent.load("pacman_dqn_episode_0.pth")  # Change to 'pacman_dqn_episode_1000.pth' after more training
+    agent.load(args.model)
 
     game = Game(layout, ai_agent=agent, screen=screen, font=default_font)
     running = True
@@ -66,7 +70,7 @@ if __name__ == "__main__":
 
         if not game.is_game_over():
             state = game.get_state_for_dqn()
-            action_idx = agent.act(state, training=False)  # Greedy action
+            action_idx = agent.act(state, training=False, legal_actions=game.get_legal_action_indices())
             actions = ['UP', 'DOWN', 'LEFT', 'RIGHT']
             action = actions[action_idx]
             game.handle_input(action)

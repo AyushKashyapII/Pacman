@@ -43,6 +43,19 @@ To start the game, run:
 python pacman.py
 ```
 
+## Training the DQN Agent
+Train headlessly with:
+```bash
+python train_dqn.py --episodes 2000 --max-steps 1500
+```
+
+Watch the trained model play:
+```bash
+python play_dqn.py --model pacman_dqn_final.pth
+```
+
+Use `--render` while training only for debugging, because drawing every frame makes learning much slower.
+
 ## Development
 For development with auto-reload:
 ```bash

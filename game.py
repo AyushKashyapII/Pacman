@@ -27,7 +27,7 @@ class GameBoard:
         count = 0
         for r in range(self.rows):
             for c in range(self.cols):
-                if self.grid[r][c] == '.':
+                if self.grid[r][c] in ('.', 'P'):
                     count += 1
         return count
 
@@ -56,6 +56,8 @@ class PacMan:
 
         if not game_board.is_wall(new_row, new_col):
             self.row, self.col = new_row, new_col
+            return True
+        return False
 
     def eat_pellet(self):
         self.score += 10
@@ -125,6 +127,7 @@ PINK = (255, 184, 222)   # Ghost 2 (Pinky)
 CYAN = (0, 255, 255)     # Ghost 3 (Inky)
 ORANGE = (255, 184, 82)  # Ghost 4 (Clyde)
 FRIGHTENED_GHOST_BLUE = (100, 100, 255)
+GREEN = (0, 255, 0)
 PELLET_COLOR = WHITE
 POWER_UP_COLOR = (0, 255, 0) # Green for power-ups
 
@@ -258,10 +261,30 @@ class Game:
 
     def handle_input(self, direction):
         if self.game_state == 'PLAYING':
-            self.pacman.move(direction, self.game_board)
+            moved = self.pacman.move(direction, self.game_board)
             # After Pac-Man moves, immediately call update to process consequences:
             # eating pellets, ghost movement, collisions, game state changes.
             self.update()
+            return moved
+        return False
+
+    def get_legal_action_indices(self):
+        directions = ['UP', 'DOWN', 'LEFT', 'RIGHT']
+        legal_actions = []
+        for idx, direction in enumerate(directions):
+            row, col = self.pacman.row, self.pacman.col
+            if direction == 'UP':
+                row -= 1
+            elif direction == 'DOWN':
+                row += 1
+            elif direction == 'LEFT':
+                col -= 1
+            elif direction == 'RIGHT':
+                col += 1
+
+            if not self.game_board.is_wall(row, col):
+                legal_actions.append(idx)
+        return legal_actions
 
     def play_ai_turn(self):
         if self.ai_agent and self.game_state == 'PLAYING':
